@@ -10,13 +10,12 @@ from openai import OpenAI
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from google.cloud import storage
 import pandas as pd
-from io import StringIO
 
 # 常數定義
 CHROMA_DB = 'Cofit211-cosine'
 CHAT_MODEL_NAME = "gpt-4o-mini"
+CSV_FILE_PATH = 'messages.csv'
 
 # Line Bot 設定
 line_bot_api = LineBotApi(os.environ.get('CHANNEL_ACCESS_TOKEN'))
@@ -33,14 +32,6 @@ deepinfra_client = OpenAI(
     api_key = os.environ.get('DEEPINFRA_API_KEY'),
     base_url = "https://api.deepinfra.com/v1/openai",
 )
-
-# GCS 設定
-bucket_name = 'ian-line-bot-files'  # 替換為您的 GCS bucket 名稱
-file_name = 'messages-health.csv'  # CSV 檔案名稱
-
-# 初始化 GCS client
-storage_client = storage.Client()
-bucket = storage_client.bucket(bucket_name)
 
 def get_embedding(text: str) -> List[float]:
     embeddings = deepinfra_client.embeddings.create(
@@ -81,11 +72,8 @@ def generate_response(messages: List[Dict]) -> str:
         return f"抱歉，發生了一個錯誤: {str(e)}"
 
 def log_message_to_csv(user_input, gpt_output, chat_room_id):
-    blob = bucket.blob(file_name)
-    
-    if blob.exists():
-        content = blob.download_as_text()
-        df = pd.read_csv(StringIO(content))
+    if os.path.exists(CSV_FILE_PATH):
+        df = pd.read_csv(CSV_FILE_PATH)
     else:
         df = pd.DataFrame(columns=["timestamp", "chat_room_id", "user_input", "gpt_output"])
     
@@ -99,16 +87,11 @@ def log_message_to_csv(user_input, gpt_output, chat_room_id):
     })
     df = pd.concat([df, new_row], ignore_index=True)
     
-    csv_buffer = StringIO()
-    df.to_csv(csv_buffer, index=False)
-    blob.upload_from_string(csv_buffer.getvalue(), content_type='text/csv')
+    df.to_csv(CSV_FILE_PATH, index=False)
 
 def get_chat_history(chat_room_id):
-    blob = bucket.blob(file_name)
-    
-    if blob.exists():
-        content = blob.download_as_text()
-        df = pd.read_csv(StringIO(content))
+    if os.path.exists(CSV_FILE_PATH):
+        df = pd.read_csv(CSV_FILE_PATH)
         
         chat_history = df[df['chat_room_id'] == chat_room_id].tail(5)
         
