@@ -1,0 +1,7 @@
+google-cloud-storage
+pandas
+chromadb
+openai
+line-bot-sdk
+google-generativeai
+
