@@ -5,6 +5,8 @@ openai
 line-bot-sdk
 google-generativeai
 
+pysqlite3-binary
+
 fastapi
 uvicorn
 python-multipart
