@@ -111,10 +111,13 @@ def get_chat_history(chat_room_id, blob):
         
         formatted_history = []
         for _, row in chat_history.iterrows():
-            formatted_history.append(f"時間: {row['timestamp']}")
-            formatted_history.append(f"使用者: {row['user_input']}")
-            formatted_history.append(f"AI: {row['gpt_output']}")
-            formatted_history.append("---")
+            if row['gpt_output'] == '。':
+                formatted_history = []
+            else:
+                formatted_history.append(f"時間: {row['timestamp']}")
+                formatted_history.append(f"使用者: {row['user_input']}")
+                formatted_history.append(f"AI: {row['gpt_output']}")
+                formatted_history.append("---")
             
         formatted_history_embedding_use = []
         if not chat_history.empty:
