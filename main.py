@@ -15,8 +15,8 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import pandas as pd
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from flask import Flask, request, abort, jsonify
+
 
 # 常數定義
 CHROMA_DB = 'Cofit211-cosine'
@@ -39,7 +39,7 @@ deepinfra_client = OpenAI(
     base_url = "https://api.deepinfra.com/v1/openai",
 )
 
-app = FastAPI()
+app = Flask(__name__)
 
 def get_embedding(text: str) -> List[float]:
     embeddings = deepinfra_client.embeddings.create(
@@ -120,27 +120,26 @@ def get_chat_history(chat_room_id):
     else:
         return "", ""
 
-@app.get("/health")
-async def health():
+@app.route("/health")
+def health():
     return 'ok'
 
-@app.post("/callback")
-async def callback(request: Request):
+@app.route("/callback", methods=['POST'])
+def callback():
     signature = request.headers.get('X-Line-Signature', '')
-    body = await request.body()
-    body_str = body.decode('utf-8')
+    body = request.get_data(as_text=True)
 
     try:
-        handler.handle(body_str, signature)
+        handler.handle(body, signature)
     except InvalidSignatureError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
+        abort(400)
 
-    return JSONResponse(content={"message": "OK"})
+    return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_input = event.message.text
-    chat_room_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
+    chat_room_id = event.source.group_id if hasattr(event.source, 'group_id') else event.source.user_id
 
     if user_input == 'reset':
         user_input = '。'
@@ -176,8 +175,9 @@ def handle_message(event):
     
     line_bot_api.reply_message(event.reply_token, TextSendMessage(GPT_output))
 
+    return 'OK'
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
     
     
