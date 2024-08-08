@@ -81,7 +81,11 @@ def generate_response(messages: List[Dict]) -> str:
         print(f"OpenAI API 錯誤: {str(e)}")
         return f"抱歉,發生了一個錯誤: {str(e)}"
 
-def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
+def log_message_to_gcs(user_input, gpt_output, chat_room_id):
+    client = storage.Client()
+    bucket = client.get_bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(GCS_FILE_PATH)
+    
     taipei_time = datetime.now(timezone.utc) + timedelta(hours=8)
     
     new_row = {
@@ -100,7 +104,11 @@ def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
     
     blob.upload_from_string(df.to_csv(index=False), 'text/csv')
 
-def get_chat_history(chat_room_id, blob):
+def get_chat_history(chat_room_id):
+    client = storage.Client()
+    bucket = client.get_bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(GCS_FILE_PATH)
+    
     if blob.exists():
         df = pd.read_csv(blob.download_as_string().decode('utf-8'))
         
@@ -123,6 +131,10 @@ def get_chat_history(chat_room_id, blob):
     else:
         return "", ""
 
+@app.route("/health")
+def health():
+    return 'ok'
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
@@ -144,11 +156,7 @@ def handle_message(event):
         user_input = '。'
         GPT_output = '。'
     else:
-        client = storage.Client()
-        bucket = client.get_bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(GCS_FILE_PATH)
-        
-        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id, blob)
+        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id)
         
         collection = configure_retriever()
         
@@ -174,7 +182,7 @@ def handle_message(event):
         if youtube_urls:
             GPT_output += "\n\n推薦影片：\n" + "\n".join(youtube_urls)
 
-    log_message_to_gcs(user_input, GPT_output, chat_room_id, blob)
+    log_message_to_gcs(user_input, GPT_output, chat_room_id)
     
     line_bot_api.reply_message(event.reply_token, TextSendMessage(GPT_output))
 
