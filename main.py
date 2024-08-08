@@ -15,13 +15,15 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import pandas as pd
+from google.cloud import storage
+from google.oauth2 import service_account
 from flask import Flask, request, abort, jsonify
-
 
 # 常數定義
 CHROMA_DB = 'Cofit211-cosine'
 CHAT_MODEL_NAME = "gpt-4o-mini"
-CSV_FILE_PATH = 'messages.csv'
+GCS_BUCKET_NAME = 'ian-line-bot-files'
+GCS_FILE_PATH = 'messages-health.csv'
 
 # Line Bot 設定
 line_bot_api = LineBotApi(os.environ.get('CHANNEL_ACCESS_TOKEN'))
@@ -77,29 +79,30 @@ def generate_response(messages: List[Dict]) -> str:
         return chat_completion.choices[0].message.content
     except Exception as e:
         print(f"OpenAI API 錯誤: {str(e)}")
-        return f"抱歉，發生了一個錯誤: {str(e)}"
+        return f"抱歉,發生了一個錯誤: {str(e)}"
 
-def log_message_to_csv(user_input, gpt_output, chat_room_id):
-    if os.path.exists(CSV_FILE_PATH):
-        df = pd.read_csv(CSV_FILE_PATH)
+def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
+    taipei_time = datetime.now(timezone.utc) + timedelta(hours=8)
+    
+    new_row = {
+        "timestamp": taipei_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "chat_room_id": chat_room_id,
+        "user_input": user_input,
+        "gpt_output": gpt_output
+    }
+    
+    if blob.exists():
+        df = pd.read_csv(blob.download_as_string().decode('utf-8'))
     else:
         df = pd.DataFrame(columns=["timestamp", "chat_room_id", "user_input", "gpt_output"])
     
-    taipei_time = datetime.now(timezone.utc) + timedelta(hours=8)
-
-    new_row = pd.DataFrame({
-        "timestamp": [taipei_time.strftime('%Y-%m-%d %H:%M:%S')],
-        "chat_room_id": [chat_room_id],
-        "user_input": [user_input],
-        "gpt_output": [gpt_output]
-    })
-    df = pd.concat([df, new_row], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     
-    df.to_csv(CSV_FILE_PATH, index=False)
+    blob.upload_from_string(df.to_csv(index=False), 'text/csv')
 
-def get_chat_history(chat_room_id):
-    if os.path.exists(CSV_FILE_PATH):
-        df = pd.read_csv(CSV_FILE_PATH)
+def get_chat_history(chat_room_id, blob):
+    if blob.exists():
+        df = pd.read_csv(blob.download_as_string().decode('utf-8'))
         
         chat_history = df[df['chat_room_id'] == chat_room_id].tail(5)
         
@@ -119,10 +122,6 @@ def get_chat_history(chat_room_id):
         return "\n".join(formatted_history), "\n".join(formatted_history_embedding_use)
     else:
         return "", ""
-
-@app.route("/health")
-def health():
-    return 'ok'
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -145,7 +144,11 @@ def handle_message(event):
         user_input = '。'
         GPT_output = '。'
     else:
-        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id)
+        client = storage.Client()
+        bucket = client.get_bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(GCS_FILE_PATH)
+        
+        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id, blob)
         
         collection = configure_retriever()
         
@@ -171,7 +174,7 @@ def handle_message(event):
         if youtube_urls:
             GPT_output += "\n\n推薦影片：\n" + "\n".join(youtube_urls)
 
-    log_message_to_csv(user_input, GPT_output, chat_room_id)
+    log_message_to_gcs(user_input, GPT_output, chat_room_id, blob)
     
     line_bot_api.reply_message(event.reply_token, TextSendMessage(GPT_output))
 
@@ -179,5 +182,3 @@ def handle_message(event):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-    
-    
