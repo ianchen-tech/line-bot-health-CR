@@ -116,6 +116,10 @@ def get_chat_history(chat_room_id):
     else:
         return "", ""
 
+@app.get("/health")
+async def health():
+    return 'ok'
+
 @app.post("/callback")
 async def callback(request: Request):
     signature = request.headers.get('X-Line-Signature', '')
