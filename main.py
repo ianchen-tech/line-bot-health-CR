@@ -18,6 +18,7 @@ import pandas as pd
 from google.cloud import storage
 from google.oauth2 import service_account
 from flask import Flask, request, abort, jsonify
+from io import StringIO
 
 # 常數定義
 CHROMA_DB = 'Cofit211-cosine'
@@ -92,7 +93,8 @@ def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
     }
     
     if blob.exists():
-        df = pd.read_csv(blob.download_as_string().decode('utf-8'))
+        content = blob.download_as_text()
+        df = pd.read_csv(StringIO(content))
     else:
         df = pd.DataFrame(columns=["timestamp", "chat_room_id", "user_input", "gpt_output"])
     
@@ -102,7 +104,8 @@ def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
 
 def get_chat_history(chat_room_id, blob):
     if blob.exists():
-        df = pd.read_csv(blob.download_as_string().decode('utf-8'))
+        content = blob.download_as_text()
+        df = pd.read_csv(StringIO(content))
         
         chat_history = df[df['chat_room_id'] == chat_room_id].tail(5)
         
