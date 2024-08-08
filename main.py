@@ -81,11 +81,7 @@ def generate_response(messages: List[Dict]) -> str:
         print(f"OpenAI API 錯誤: {str(e)}")
         return f"抱歉,發生了一個錯誤: {str(e)}"
 
-def log_message_to_gcs(user_input, gpt_output, chat_room_id):
-    client = storage.Client()
-    bucket = client.get_bucket(GCS_BUCKET_NAME)
-    blob = bucket.blob(GCS_FILE_PATH)
-    
+def log_message_to_gcs(user_input, gpt_output, chat_room_id, blob):
     taipei_time = datetime.now(timezone.utc) + timedelta(hours=8)
     
     new_row = {
@@ -104,11 +100,7 @@ def log_message_to_gcs(user_input, gpt_output, chat_room_id):
     
     blob.upload_from_string(df.to_csv(index=False), 'text/csv')
 
-def get_chat_history(chat_room_id):
-    client = storage.Client()
-    bucket = client.get_bucket(GCS_BUCKET_NAME)
-    blob = bucket.blob(GCS_FILE_PATH)
-    
+def get_chat_history(chat_room_id, blob):
     if blob.exists():
         df = pd.read_csv(blob.download_as_string().decode('utf-8'))
         
@@ -131,10 +123,6 @@ def get_chat_history(chat_room_id):
     else:
         return "", ""
 
-@app.route("/health")
-def health():
-    return 'ok'
-
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
@@ -152,11 +140,15 @@ def handle_message(event):
     user_input = event.message.text
     chat_room_id = event.source.group_id if hasattr(event.source, 'group_id') else event.source.user_id
 
+    client = storage.Client()
+    bucket = client.get_bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(GCS_FILE_PATH)
+    
     if user_input == 'reset':
         user_input = '。'
         GPT_output = '。'
     else:
-        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id)
+        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id, blob)
         
         collection = configure_retriever()
         
@@ -182,7 +174,7 @@ def handle_message(event):
         if youtube_urls:
             GPT_output += "\n\n推薦影片：\n" + "\n".join(youtube_urls)
 
-    log_message_to_gcs(user_input, GPT_output, chat_room_id)
+    log_message_to_gcs(user_input, GPT_output, chat_room_id, blob)
     
     line_bot_api.reply_message(event.reply_token, TextSendMessage(GPT_output))
 
