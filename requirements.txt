@@ -8,3 +8,4 @@ flask
 gunicorn
 python-dateutil
 pytz
+google-cloud-storage
