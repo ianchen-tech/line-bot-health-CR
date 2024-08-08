@@ -1,7 +1,17 @@
-google-cloud-storage
+numpy
 pandas
 chromadb
 openai
 line-bot-sdk
 google-generativeai
 
+fastapi
+uvicorn
+python-multipart
+httpx
+pydantic
+typing-extensions
+python-dateutil
+pytz
+
+google-cloud-storage
