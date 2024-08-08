@@ -11,6 +11,8 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import pandas as pd
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 
 # 常數定義
 CHROMA_DB = 'Cofit211-cosine'
@@ -32,6 +34,8 @@ deepinfra_client = OpenAI(
     api_key = os.environ.get('DEEPINFRA_API_KEY'),
     base_url = "https://api.deepinfra.com/v1/openai",
 )
+
+app = FastAPI()
 
 def get_embedding(text: str) -> List[float]:
     embeddings = deepinfra_client.embeddings.create(
@@ -112,64 +116,60 @@ def get_chat_history(chat_room_id):
     else:
         return "", ""
 
-def linebot(request):
-    if request.method != 'POST' or 'X-Line-Signature' not in request.headers:
-        return 'Error: Invalid source', 403
-    
-    x_line_signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    hash = hmac.new(channel_secret.encode('utf-8'),
-                body.encode('utf-8'), hashlib.sha256).digest()
-    signature = base64.b64encode(hash).decode('utf-8')
-    
-    if x_line_signature == signature:
-        try:
-            json_data = json.loads(body)
-            handler.handle(body, x_line_signature)
-            tk = json_data['events'][0]['replyToken']
-            
-            user_input = json_data['events'][0]['message']['text']
-            
-            chat_room_id = json_data['events'][0]['source']['groupId'] if 'groupId' in json_data['events'][0]['source'] else json_data['events'][0]['source']['userId']
-            
-            if user_input == 'reset':
-                user_input = '。'
-                GPT_output = '。'
-            
-            else:
-                chat_history, chat_history_embedding_use = get_chat_history(chat_room_id)
-                
-                collection = configure_retriever()
-                
-                cumulative_query = chat_history_embedding_use + '\n' + user_input
-                relevant_docs = get_relevant_documents(cumulative_query, collection, top_k=3)
-                context = relevant_docs[0]['page_content'] if relevant_docs else ""
-    
-                messages_for_ai = [
-                    {"role": "system", "content": f"你是一位專業的健康、醫療和飲食相關的諮詢師。用繁體中文回覆。請使用以下背景資訊來回答問題:\n\n{context}"},
-                    {"role": "user", "content": f"之前的對話紀錄：\n{chat_history}\n\n使用者的最新問題：{user_input}"}
-                ]
-                
-                GPT_output = generate_response(messages_for_ai)
-                
-                # 添加 YouTube URL 到回覆中
-                youtube_urls = []
-                for doc in relevant_docs:
-                    if 'video_id' in doc['metadata']:
-                        video_id = doc['metadata']['video_id']
-                        youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-                        youtube_urls.append(youtube_url)
-                
-                if youtube_urls:
-                    GPT_output += "\n\n推薦影片：\n" + "\n".join(youtube_urls)
+@app.post("/callback")
+async def callback(request: Request):
+    signature = request.headers.get('X-Line-Signature', '')
+    body = await request.body()
+    body_str = body.decode('utf-8')
 
-            log_message_to_csv(user_input, GPT_output, chat_room_id)
-            
-            line_bot_api.reply_message(tk, TextSendMessage(GPT_output))
-            
-            return 'OK', 200
-        except Exception as e:
-            print(f"發生錯誤：{type(e).__name__} - {str(e)}")
-            return 'Internal Server Error', 500
+    try:
+        handler.handle(body_str, signature)
+    except InvalidSignatureError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    return JSONResponse(content={"message": "OK"})
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_input = event.message.text
+    chat_room_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
+
+    if user_input == 'reset':
+        user_input = '。'
+        GPT_output = '。'
     else:
-        return 'Invalid signature', 403
+        chat_history, chat_history_embedding_use = get_chat_history(chat_room_id)
+        
+        collection = configure_retriever()
+        
+        cumulative_query = chat_history_embedding_use + '\n' + user_input
+        relevant_docs = get_relevant_documents(cumulative_query, collection, top_k=3)
+        context = relevant_docs[0]['page_content'] if relevant_docs else ""
+
+        messages_for_ai = [
+            {"role": "system", "content": f"你是一位專業的健康、醫療和飲食相關的諮詢師。用繁體中文回覆。請使用以下背景資訊來回答問題:\n\n{context}"},
+            {"role": "user", "content": f"之前的對話紀錄：\n{chat_history}\n\n使用者的最新問題：{user_input}"}
+        ]
+        
+        GPT_output = generate_response(messages_for_ai)
+        
+        # 添加 YouTube URL 到回覆中
+        youtube_urls = []
+        for doc in relevant_docs:
+            if 'video_id' in doc['metadata']:
+                video_id = doc['metadata']['video_id']
+                youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+                youtube_urls.append(youtube_url)
+        
+        if youtube_urls:
+            GPT_output += "\n\n推薦影片：\n" + "\n".join(youtube_urls)
+
+    log_message_to_csv(user_input, GPT_output, chat_room_id)
+    
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(GPT_output))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    
+    
