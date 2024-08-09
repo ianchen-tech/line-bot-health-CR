@@ -163,7 +163,7 @@ def handle_message(event):
         context = relevant_docs[0]['page_content'] if relevant_docs else ""
 
         messages_for_ai = [
-            {"role": "system", "content": f"你是一位專業的健康、醫療和飲食相關的諮詢師。用繁體中文回覆，回覆的內容不要有'*'這個符號。可以參考以下背景資訊但不限於此來回答問題:\n\n{context}\n除了以上資訊你可以再進行補充，回答不用過長，回答得有結構及完整就好。"},
+            {"role": "system", "content": f"你是一位專業的健康、醫療和飲食相關的諮詢師。用繁體中文回覆，回覆的內容不要為了格式粗體字而有'*'這個符號。可以參考以下背景資訊但不限於此來回答問題:\n\n{context}\n除了以上資訊你可以再進行補充，回答不用過長，回答得有結構及完整就好。必要時可以跟使用者詢問更多資訊來提供給你。"},
             {"role": "user", "content": f"之前的對話紀錄：\n{chat_history}\n\n使用者的最新問題：{user_input}"}
         ]
         
