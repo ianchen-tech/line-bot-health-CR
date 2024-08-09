@@ -168,7 +168,7 @@ def handle_message(event):
         ]
         
         GPT_output = generate_response(messages_for_ai)
-        GPT_output = GPT_output.replace(['*', '#'], '')
+        GPT_output = GPT_output.replace('*', '').replace('#', '')
         
         # 添加 YouTube URL 到回覆中
         youtube_urls = []
